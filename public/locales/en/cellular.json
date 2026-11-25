@@ -630,6 +630,18 @@
   },
   "core_settings": {
     "euicc": {
+      "add": {
+        "button": "Add profile",
+        "title": "Install a profile",
+        "description": "Download a profile from its SM-DP+ server using an activation code.",
+        "activation_label": "Activation code",
+        "activation_hint": "Paste the full LPA code from the carrier or eSIM provider.",
+        "confirmation_label": "Confirmation code (optional)",
+        "confirmation_placeholder": "Only if the provider requires one",
+        "note": "The profile is installed disabled. Enable it from the list when you are ready to switch.",
+        "install": "Install profile",
+        "downloading": "Downloading profile…"
+      },
       "page": {
         "title": "eSIM Profiles",
         "description": "Read the eUICC, inspect installed profiles, and switch the active profile.",
@@ -669,6 +681,7 @@
       "toast": {
         "enabled": "Profile enabled",
         "deleted": "Profile deleted",
+        "downloaded": "Profile installed: {{name}}",
         "refreshing": "Waiting for the modem to reconnect…"
       },
       "errors": {
@@ -676,6 +689,7 @@
         "load_description": "The modem did not return a profile list.",
         "retry": "Retry",
         "action_failed": "Could not change the profile",
+        "download_failed": "Could not install the profile",
         "refresh_timeout": "The modem did not come back in time",
         "state_not_changed": "The eUICC did not change state"
       }

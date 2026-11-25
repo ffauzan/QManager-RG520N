@@ -26,6 +26,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { MaterialSymbol } from "@/components/ui/material-symbol";
 import type { MaterialSymbolName } from "@/components/ui/material-symbol";
 import { useEuicc, type EuiccAction } from "@/hooks/use-euicc";
@@ -61,6 +71,38 @@ const EuiccSettings = () => {
     action: Extract<EuiccAction, "enable" | "delete">;
     profile: EuiccProfile;
   } | null>(null);
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [activationCode, setActivationCode] = React.useState("");
+  const [confirmationCode, setConfirmationCode] = React.useState("");
+
+  const addProfile = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const result = await euicc.downloadProfile(
+      activationCode.trim(),
+      confirmationCode.trim() || undefined,
+    );
+    if (result.ok) {
+      toast.success(
+        t(`${K}.toast.downloaded`, {
+          name: result.profileName || result.iccid || "",
+        }),
+      );
+      setAddOpen(false);
+      setActivationCode("");
+      setConfirmationCode("");
+      return;
+    }
+
+    toast.error(
+      t(
+        result.error === "refresh_timeout"
+          ? `${K}.errors.refresh_timeout`
+          : `${K}.errors.download_failed`,
+      ),
+      { description: result.detail },
+    );
+  };
 
   const confirm = async () => {
     if (!pending) return;
@@ -96,16 +138,28 @@ const EuiccSettings = () => {
         title={t(`${K}.page.title`)}
         description={t(`${K}.page.description`)}
         actions={
-          <Button
-            type="button"
-            variant="tonal-neutral"
-            size="sm"
-            onClick={() => void euicc.refresh()}
-            disabled={euicc.isLoading || euicc.isMutating}
-          >
-            <MaterialSymbol name="refresh" size={16} />
-            {t(`${K}.card.refresh`)}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="tonal"
+              size="sm"
+              onClick={() => setAddOpen(true)}
+              disabled={euicc.isLoading || euicc.isMutating || euicc.isDownloading}
+            >
+              <MaterialSymbol name="add" size={16} />
+              {t(`${K}.add.button`)}
+            </Button>
+            <Button
+              type="button"
+              variant="tonal-neutral"
+              size="sm"
+              onClick={() => void euicc.refresh()}
+              disabled={euicc.isLoading || euicc.isMutating || euicc.isDownloading}
+            >
+              <MaterialSymbol name="refresh" size={16} />
+              {t(`${K}.card.refresh`)}
+            </Button>
+          </div>
         }
       />
 
@@ -165,7 +219,7 @@ const EuiccSettings = () => {
                 <div className={ROW_GROUP.ROOT}>
                   {profiles.map((profile, index) => {
                     const state = STATE_SPEC[profile.state];
-                    const isPending = euicc.isMutating;
+                    const isPending = euicc.isMutating || euicc.isDownloading;
 
                     return (
                       <React.Fragment key={profile.iccidHex || profile.iccid}>
@@ -238,9 +292,11 @@ const EuiccSettings = () => {
                 </div>
               )}
 
-              {euicc.isMutating ? (
+              {euicc.isMutating || euicc.isDownloading ? (
                 <p className="text-on-surface-variant mt-4 text-sm" role="status">
-                  {t(`${K}.toast.refreshing`)}
+                  {euicc.isDownloading
+                    ? t(`${K}.add.downloading`)
+                    : t(`${K}.toast.refreshing`)}
                 </p>
               ) : null}
             </CardContent>
@@ -301,6 +357,75 @@ const EuiccSettings = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent>
+          <form onSubmit={addProfile} className="flex flex-col gap-4">
+            <DialogHeader>
+              <DialogTitle>{t(`${K}.add.title`)}</DialogTitle>
+              <DialogDescription>
+                {t(`${K}.add.description`)}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="euicc-activation-code">
+                {t(`${K}.add.activation_label`)}
+              </Label>
+              <Input
+                id="euicc-activation-code"
+                value={activationCode}
+                onChange={(event) => setActivationCode(event.target.value)}
+                placeholder="LPA:1$sm-dp+$matching-id"
+                autoComplete="off"
+                spellCheck={false}
+                className="font-mono text-xs"
+              />
+              <p className="text-on-surface-variant text-xs">
+                {t(`${K}.add.activation_hint`)}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="euicc-confirmation-code">
+                {t(`${K}.add.confirmation_label`)}
+              </Label>
+              <Input
+                id="euicc-confirmation-code"
+                value={confirmationCode}
+                onChange={(event) => setConfirmationCode(event.target.value)}
+                placeholder={t(`${K}.add.confirmation_placeholder`)}
+                autoComplete="off"
+                spellCheck={false}
+                className="font-mono text-xs"
+              />
+            </div>
+
+            <p className="text-on-surface-variant text-xs leading-relaxed">
+              {t(`${K}.add.note`)}
+            </p>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setAddOpen(false)}
+                disabled={euicc.isDownloading}
+              >
+                {t(`${K}.actions.cancel`)}
+              </Button>
+              <Button
+                type="submit"
+                disabled={!activationCode.trim() || euicc.isDownloading}
+              >
+                {euicc.isDownloading
+                  ? t(`${K}.add.downloading`)
+                  : t(`${K}.add.install`)}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

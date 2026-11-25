@@ -630,6 +630,18 @@
   },
   "core_settings": {
     "euicc": {
+      "add": {
+        "button": "新增設定檔",
+        "title": "安裝設定檔",
+        "description": "使用啟用碼從 SM-DP+ 伺服器下載設定檔。",
+        "activation_label": "啟用碼",
+        "activation_hint": "貼上電信業者或 eSIM 供應商提供的完整 LPA 代碼。",
+        "confirmation_label": "確認碼（選填）",
+        "confirmation_placeholder": "僅在供應商要求時填寫",
+        "note": "設定檔安裝後為未啟用狀態。準備切換時請在清單中啟用它。",
+        "install": "安裝設定檔",
+        "downloading": "正在下載設定檔…"
+      },
       "page": {
         "title": "eSIM 設定檔",
         "description": "讀取 eUICC、檢視已安裝的設定檔，並切換目前設定檔。",
@@ -669,6 +681,7 @@
       "toast": {
         "enabled": "設定檔已啟用",
         "deleted": "設定檔已刪除",
+        "downloaded": "設定檔已安裝：{{name}}",
         "refreshing": "正在等待數據機重新連線…"
       },
       "errors": {
@@ -676,6 +689,7 @@
         "load_description": "數據機未傳回設定檔清單。",
         "retry": "重試",
         "action_failed": "無法變更設定檔",
+        "download_failed": "無法安裝設定檔",
         "refresh_timeout": "數據機未及時恢復",
         "state_not_changed": "eUICC 設定檔狀態未改變"
       }

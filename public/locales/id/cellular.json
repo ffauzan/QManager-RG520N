@@ -630,6 +630,18 @@
   },
   "core_settings": {
     "euicc": {
+      "add": {
+        "button": "Tambah profil",
+        "title": "Pasang profil",
+        "description": "Unduh profil dari server SM-DP+ menggunakan kode aktivasi.",
+        "activation_label": "Kode aktivasi",
+        "activation_hint": "Tempel kode LPA lengkap dari operator atau penyedia eSIM.",
+        "confirmation_label": "Kode konfirmasi (opsional)",
+        "confirmation_placeholder": "Hanya jika penyedia memintanya",
+        "note": "Profil dipasang dalam keadaan nonaktif. Aktifkan dari daftar saat siap beralih.",
+        "install": "Pasang profil",
+        "downloading": "Mengunduh profil…"
+      },
       "page": {
         "title": "Profil eSIM",
         "description": "Baca eUICC, lihat profil yang terpasang, dan ganti profil aktif.",
@@ -669,6 +681,7 @@
       "toast": {
         "enabled": "Profil diaktifkan",
         "deleted": "Profil dihapus",
+        "downloaded": "Profil terpasang: {{name}}",
         "refreshing": "Menunggu modem tersambung kembali…"
       },
       "errors": {
@@ -676,6 +689,7 @@
         "load_description": "Modem tidak mengembalikan daftar profil.",
         "retry": "Coba lagi",
         "action_failed": "Gagal mengubah profil",
+        "download_failed": "Gagal memasang profil",
         "refresh_timeout": "Modem tidak kembali tepat waktu",
         "state_not_changed": "Status profil di eUICC tidak berubah"
       }

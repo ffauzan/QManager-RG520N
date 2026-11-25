@@ -1,0 +1,204 @@
+diff --git a/driver/apdu/at.c b/driver/apdu/at.c
+index 3cce694..a1e2506 100644
+--- a/driver/apdu/at.c
++++ b/driver/apdu/at.c
+@@ -12,6 +12,7 @@
+ #define AT_BUFFER_SIZE 20480
+ static FILE *fuart;
+ static int logic_channel = 0;
++static int use_qcmd = 0;
+ static char *buffer;
+ 
+ static int at_expect(char **response, const char *expected)
+@@ -44,38 +45,91 @@ static int at_expect(char **response, const char *expected)
+     return 0;
+ }
+ 
++static int at_qcmd(const char *command, char **response, const char *expected)
++{
++    char shell[AT_BUFFER_SIZE + 64];
++    char line[AT_BUFFER_SIZE];
++
++    if (response)
++        *response = NULL;
++    if (strchr(command, '\'') != NULL)
++        return -1;
++
++    snprintf(shell, sizeof(shell),
++             "QCMD_WAIT_MS=30000 qcmd '%s' 2>/dev/null", command);
++    FILE *q = popen(shell, "r");
++    if (q == NULL)
++        return -1;
++
++    int result = 0;
++    while (fgets(line, sizeof(line), q))
++    {
++        line[strcspn(line, "\r\n")] = 0;
++        if (strcmp(line, "ERROR") == 0)
++        {
++            result = -1;
++            break;
++        }
++        if (strcmp(line, "OK") == 0)
++        {
++            result = 0;
++            break;
++        }
++        if (expected && strncmp(line, expected, strlen(expected)) == 0)
++        {
++            if (response)
++                *response = strdup(line + strlen(expected));
++        }
++    }
++    pclose(q);
++    return result;
++}
++
++static int at_command(const char *command, char **response, const char *expected)
++{
++    if (use_qcmd)
++        return at_qcmd(command, response, expected);
++
++    fprintf(fuart, "%s\r\n", command);
++    return at_expect(response, expected);
++}
++
+ static int apdu_interface_connect(struct euicc_ctx *ctx)
+ {
+     const char *device;
+ 
+     logic_channel = 0;
++    use_qcmd = 0;
+ 
+-    if (!(device = getenv("AT_DEVICE")))
++    device = getenv("AT_DEVICE");
++    if (getenv("AT_USE_QCMD") || (device && strcmp(device, "qcmd") == 0))
+     {
+-        device = "/dev/ttyUSB0";
++        use_qcmd = 1;
+     }
+-
+-    fuart = fopen(device, "r+");
+-    if (fuart == NULL)
++    else
+     {
+-        fprintf(stderr, "Failed to open device: %s\n", device);
+-        return -1;
++        if (!device)
++            device = "/dev/ttyUSB0";
++
++        fuart = fopen(device, "r+");
++        if (fuart == NULL)
++        {
++            fprintf(stderr, "Failed to open device: %s\n", device);
++            return -1;
++        }
+     }
+ 
+-    fprintf(fuart, "AT+CCHO=?\r\n");
+-    if (at_expect(NULL, NULL))
++    if (at_command("AT+CCHO=?", NULL, NULL))
+     {
+         fprintf(stderr, "Device missing AT+CCHO support\n");
+         return -1;
+     }
+-    fprintf(fuart, "AT+CCHC=?\r\n");
+-    if (at_expect(NULL, NULL))
++    if (at_command("AT+CCHC=?", NULL, NULL))
+     {
+         fprintf(stderr, "Device missing AT+CCHC support\n");
+         return -1;
+     }
+-    fprintf(fuart, "AT+CGLA=?\r\n");
+-    if (at_expect(NULL, NULL))
++    if (at_command("AT+CGLA=?", NULL, NULL))
+     {
+         fprintf(stderr, "Device missing AT+CGLA support\n");
+         return -1;
+@@ -86,9 +140,11 @@ static int apdu_interface_connect(struct euicc_ctx *ctx)
+ 
+ static void apdu_interface_disconnect(struct euicc_ctx *ctx)
+ {
+-    fclose(fuart);
++    if (!use_qcmd && fuart)
++        fclose(fuart);
+     fuart = NULL;
+     logic_channel = 0;
++    use_qcmd = 0;
+ }
+ 
+ static int apdu_interface_transmit(struct euicc_ctx *ctx, uint8_t **rx, uint32_t *rx_len, const uint8_t *tx, uint32_t tx_len)
+@@ -106,13 +162,25 @@ static int apdu_interface_transmit(struct euicc_ctx *ctx, uint8_t **rx, uint32_t
+         return -1;
+     }
+ 
+-    fprintf(fuart, "AT+CGLA=%d,%u,\"", logic_channel, tx_len * 2);
++    char command[AT_BUFFER_SIZE];
++    int offset = snprintf(command, sizeof(command), "AT+CGLA=%d,%u,\"",
++                          logic_channel, tx_len * 2);
++    if (offset < 0 || (size_t)offset >= sizeof(command))
++        goto err;
+     for (uint32_t i = 0; i < tx_len; i++)
+     {
+-        fprintf(fuart, "%02X", (uint8_t)(tx[i] & 0xFF));
++        int written = snprintf(command + offset, sizeof(command) - (size_t)offset,
++                               "%02X", (uint8_t)(tx[i] & 0xFF));
++        if (written < 0 || (size_t)written >= sizeof(command) - (size_t)offset)
++            goto err;
++        offset += written;
+     }
+-    fprintf(fuart, "\"\r\n");
+-    if (at_expect(&response, "+CGLA: "))
++    if ((size_t)offset + 2 > sizeof(command))
++        goto err;
++    command[offset++] = '"';
++    command[offset] = '\0';
++
++    if (at_command(command, &response, "+CGLA: "))
+     {
+         goto err;
+     }
+@@ -168,18 +236,25 @@ static int apdu_interface_logic_channel_open(struct euicc_ctx *ctx, const uint8_
+         return logic_channel;
+     }
+ 
++    char command[128];
+     for (int i = 1; i <= 4; i++)
+     {
+-        fprintf(fuart, "AT+CCHC=%d\r\n", i);
+-        at_expect(NULL, NULL);
++        snprintf(command, sizeof(command), "AT+CCHC=%d", i);
++        at_command(command, NULL, NULL);
+     }
+-    fprintf(fuart, "AT+CCHO=\"");
++    int offset = snprintf(command, sizeof(command), "AT+CCHO=\"");
+     for (int i = 0; i < aid_len; i++)
+     {
+-        fprintf(fuart, "%02X", (uint8_t)(aid[i] & 0xFF));
++        if ((size_t)offset + 2 >= sizeof(command))
++            return -1;
++        offset += snprintf(command + offset, sizeof(command) - (size_t)offset,
++                           "%02X", (uint8_t)(aid[i] & 0xFF));
+     }
+-    fprintf(fuart, "\"\r\n");
+-    if (at_expect(&response, "+CCHO: "))
++    if ((size_t)offset + 2 > sizeof(command))
++        return -1;
++    command[offset++] = '"';
++    command[offset] = '\0';
++    if (at_command(command, &response, "+CCHO: "))
+     {
+         return -1;
+     }
+@@ -198,8 +273,9 @@ static void apdu_interface_logic_channel_close(struct euicc_ctx *ctx, uint8_t ch
+     {
+         return;
+     }
+-    fprintf(fuart, "AT+CCHC=%d\r\n", logic_channel);
+-    at_expect(NULL, NULL);
++    char command[32];
++    snprintf(command, sizeof(command), "AT+CCHC=%d", logic_channel);
++    at_command(command, NULL, NULL);
+ }
+ 
+ static int libapduinterface_init(struct euicc_apdu_interface *ifstruct)

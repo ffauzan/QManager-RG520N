@@ -1,0 +1,70 @@
+#!/bin/sh
+# qmanager_euicc_download — run lpac profile download and publish JSON status.
+#
+# Started in the background by the eUICC download CGI. lpac talks to the eUICC
+# through qcmd (AT_USE_QCMD=1), so it uses the same serialized AT lane as every
+# other QManager operation.
+#
+# Status file: /tmp/qmanager_euicc_download.json
+# Log file:    /tmp/qmanager_euicc_download.log
+
+set -u
+
+CODE=${1:-}
+CONFIRM=${2:-}
+STATUS="/tmp/qmanager_euicc_download.json"
+LOG="/tmp/qmanager_euicc_download.log"
+PID_FILE="/tmp/qmanager_euicc_download.pid"
+
+write_status() {
+    _state=$1
+    _message=$2
+    _detail=$3
+    _iccid=$4
+    _profile_name=$5
+    _tmp="${STATUS}.$$"
+    jq -n \
+        --arg state "$_state" \
+        --arg message "$_message" \
+        --arg detail "$_detail" \
+        --arg iccid "$_iccid" \
+        --arg profile_name "$_profile_name" \
+        '{
+            state: $state,
+            message: $message,
+            detail: $detail,
+            iccid: $iccid,
+            profile_name: $profile_name
+        }' > "$_tmp" && mv "$_tmp" "$STATUS"
+}
+
+echo $$ > "$PID_FILE"
+: > "$LOG"
+write_status "running" "Starting profile download" "" "" ""
+
+if [ -n "$CONFIRM" ]; then
+    HOME=/tmp LPAC_APDU=at AT_USE_QCMD=1 LPAC_HTTP=curl \
+        /usr/bin/qmanager_lpac profile download -a "$CODE" -c "$CONFIRM" \
+        >> "$LOG" 2>&1
+else
+    HOME=/tmp LPAC_APDU=at AT_USE_QCMD=1 LPAC_HTTP=curl \
+        /usr/bin/qmanager_lpac profile download -a "$CODE" \
+        >> "$LOG" 2>&1
+fi
+_rc=$?
+
+_final=$(grep '"type":"lpa"' "$LOG" 2>/dev/null | tail -n 1)
+_code=$(printf '%s' "$_final" | jq -r '.payload.code // empty' 2>/dev/null)
+_message=$(printf '%s' "$_final" | jq -r '.payload.message // empty' 2>/dev/null)
+
+if [ "$_rc" -eq 0 ] && [ "$_code" = "0" ]; then
+    _meta=$(grep 'es8p_metadat' "$LOG" 2>/dev/null | tail -n 1)
+    _iccid=$(printf '%s' "$_meta" | jq -r '.payload.data.iccid // empty' 2>/dev/null)
+    _profile_name=$(printf '%s' "$_meta" | jq -r '.payload.data.profileName // empty' 2>/dev/null)
+    write_status "success" "Profile installed" "" "$_iccid" "$_profile_name"
+else
+    _detail=${_message:-"lpac exited with code $_rc"}
+    write_status "failed" "Profile download failed" "$_detail" "" ""
+fi
+
+rm -f "$PID_FILE"

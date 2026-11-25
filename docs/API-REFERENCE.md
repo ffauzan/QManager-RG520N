@@ -641,6 +641,41 @@ Local profile enable, disable, or delete. There is no profile download endpoint;
 
 Enable and disable trigger a UICC REFRESH; the modem can be unreachable for 30–60 seconds. The client must re-read `status.sh` and verify the profile state instead of relying on `result`. The endpoint refuses to delete the active profile.
 
+### POST `/euicc/download.sh`
+
+Starts an SM-DP+ profile download in the background.
+
+**Request:**
+```json
+{
+  "activation_code": "LPA:1$rsp-eu.redteamobile.com$63537CCEE5AC184DBD15E6C97BA6C508",
+  "confirmation_code": ""
+}
+```
+
+**Response:**
+```json
+{ "success": true, "state": "running" }
+```
+
+The CGI validates the activation code, starts `qmanager_euicc_download`, and returns immediately. lpac talks to the eUICC through `qcmd` (`LPAC_APDU=at`, `AT_USE_QCMD=1`) so it uses the same serialized AT lane as the rest of QManager.
+
+### GET `/euicc/download_status.sh`
+
+Reads the background job status file:
+
+```json
+{
+  "state": "success",
+  "message": "Profile installed",
+  "detail": "",
+  "iccid": "89620100002281181523",
+  "profile_name": "IM3_Replacement"
+}
+```
+
+States: `idle`, `running`, `success`, `failed`. A downloaded profile is installed **disabled**; enable it explicitly with `/euicc/profile.sh`.
+
 ### GET/POST `/cellular/sms.sh`
 
 SMS inbox and send functionality.

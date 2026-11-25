@@ -11,6 +11,16 @@ import {
 
 const STATUS_ENDPOINT = "/cgi-bin/quecmanager/euicc/status.sh";
 const ACTION_ENDPOINT = "/cgi-bin/quecmanager/euicc/profile.sh";
+const DOWNLOAD_ENDPOINT = "/cgi-bin/quecmanager/euicc/download.sh";
+const DOWNLOAD_STATUS_ENDPOINT =
+  "/cgi-bin/quecmanager/euicc/download_status.sh";
+
+/**
+ * A profile download is an SM-DP+ round trip: ES9+ auth, BPP download and
+ * ES10b install. It usually takes seconds but can take minutes on a slow link.
+ */
+const DOWNLOAD_POLL_DELAY_MS = 2000;
+const DOWNLOAD_MAX_ATTEMPTS = 150;
 
 /**
  * A profile switch triggers UICC REFRESH. The modem drops off the network and
@@ -48,6 +58,28 @@ interface ActionResponse {
   error?: string;
 }
 
+interface DownloadResponse {
+  success?: boolean;
+  detail?: string;
+  error?: string;
+}
+
+interface DownloadStatus {
+  state?: "idle" | "running" | "success" | "failed";
+  message?: string;
+  detail?: string;
+  iccid?: string;
+  profile_name?: string;
+}
+
+export interface EuiccDownloadResult {
+  ok: boolean;
+  error?: "download_failed" | "refresh_timeout";
+  detail?: string;
+  iccid?: string;
+  profileName?: string;
+}
+
 function delay(ms: number): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
   setTimeout(resolve, ms);
@@ -64,18 +96,24 @@ export interface UseEuiccReturn {
   data: EuiccStatus | null;
   isLoading: boolean;
   isMutating: boolean;
+  isDownloading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
   runAction: (
     action: EuiccAction,
     profile: EuiccProfile,
   ) => Promise<EuiccActionResult>;
+  downloadProfile: (
+    activationCode: string,
+    confirmationCode?: string,
+  ) => Promise<EuiccDownloadResult>;
 }
 
 export function useEuicc(): UseEuiccReturn {
   const [data, setData] = React.useState<EuiccStatus | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isMutating, setIsMutating] = React.useState(false);
+  const [isDownloading, setIsDownloading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const mountedRef = React.useRef(true);
@@ -222,12 +260,104 @@ export function useEuicc(): UseEuiccReturn {
     [waitForProfileState],
   );
 
+  const downloadProfile = React.useCallback(
+    async (
+      activationCode: string,
+      confirmationCode?: string,
+    ): Promise<EuiccDownloadResult> => {
+      setIsDownloading(true);
+      setError(null);
+
+      let startDetail: string | undefined;
+
+      try {
+        try {
+          const resp = await authFetch(DOWNLOAD_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              activation_code: activationCode,
+              confirmation_code: confirmationCode ?? "",
+            }),
+          });
+
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+          const json = (await resp.json()) as DownloadResponse;
+          if (!json.success) {
+            return {
+              ok: false,
+              error: "download_failed",
+              detail: json.detail || json.error,
+            };
+          }
+        } catch (err) {
+          // The background job may still be running even if the start response
+          // was lost. The status file decides.
+          startDetail = err instanceof Error ? err.message : undefined;
+        }
+
+        for (
+          let attempt = 0;
+          attempt < DOWNLOAD_MAX_ATTEMPTS;
+          attempt += 1
+        ) {
+          await delay(DOWNLOAD_POLL_DELAY_MS);
+
+          try {
+            const resp = await authFetch(DOWNLOAD_STATUS_ENDPOINT, {
+              cache: "no-store",
+            });
+            if (!resp.ok) continue;
+
+            const status = (await resp.json()) as DownloadStatus;
+            if (!mountedRef.current) return { ok: false, error: "download_failed" };
+
+            if (status.state === "success") {
+              await refresh();
+              return {
+                ok: true,
+                iccid: status.iccid,
+                profileName: status.profile_name,
+              };
+            }
+
+            if (status.state === "failed") {
+              return {
+                ok: false,
+                error: "download_failed",
+                detail: status.detail || status.message,
+              };
+            }
+
+            if (status.state === "idle" && startDetail) {
+              return {
+                ok: false,
+                error: "download_failed",
+                detail: startDetail,
+              };
+            }
+          } catch {
+            // Keep polling through a transient modem/HTTP hiccup.
+          }
+        }
+
+        return { ok: false, error: "refresh_timeout" };
+      } finally {
+        if (mountedRef.current) setIsDownloading(false);
+      }
+    },
+    [refresh],
+  );
+
   return {
     data,
     isLoading,
     isMutating,
+    isDownloading,
     error,
     refresh,
     runAction,
+    downloadProfile,
   };
 }

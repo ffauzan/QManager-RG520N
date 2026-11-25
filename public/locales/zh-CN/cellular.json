@@ -630,6 +630,18 @@
   },
   "core_settings": {
     "euicc": {
+      "add": {
+        "button": "添加配置",
+        "title": "安装配置",
+        "description": "使用激活码从 SM-DP+ 服务器下载配置。",
+        "activation_label": "激活码",
+        "activation_hint": "粘贴运营商或 eSIM 提供商提供的完整 LPA 代码。",
+        "confirmation_label": "确认码（可选）",
+        "confirmation_placeholder": "仅在提供商要求时填写",
+        "note": "配置安装后处于未启用状态。准备切换时请在列表中启用它。",
+        "install": "安装配置",
+        "downloading": "正在下载配置…"
+      },
       "page": {
         "title": "eSIM 配置",
         "description": "读取 eUICC、查看已安装的配置，并切换当前配置。",
@@ -669,6 +681,7 @@
       "toast": {
         "enabled": "配置已启用",
         "deleted": "配置已删除",
+        "downloaded": "配置已安装：{{name}}",
         "refreshing": "正在等待调制解调器重新连接…"
       },
       "errors": {
@@ -676,6 +689,7 @@
         "load_description": "调制解调器未返回配置列表。",
         "retry": "重试",
         "action_failed": "无法更改配置",
+        "download_failed": "无法安装配置",
         "refresh_timeout": "调制解调器未及时恢复",
         "state_not_changed": "eUICC 配置状态未改变"
       }
