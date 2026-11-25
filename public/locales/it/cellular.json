@@ -629,6 +629,57 @@
     }
   },
   "core_settings": {
+    "euicc": {
+      "page": {
+        "title": "Profili eSIM",
+        "description": "Leggi l'eUICC, ispeziona i profili installati e cambia il profilo attivo.",
+        "note": "Il cambio di profilo avvia un refresh del modem. I dati cellulari cadono per circa 30–60 secondi e tornano da soli; la pagina continua a controllare finché lo stato del profilo non cambia."
+      },
+      "card": {
+        "title": "Profili installati",
+        "description": "Letti dall'eUICC tramite ES10c. L'EID identifica la scheda, non il profilo.",
+        "refresh": "Aggiorna",
+        "eid": "EID",
+        "profile_meta": "{{spn}} · ICCID {{iccid}}"
+      },
+      "states": {
+        "enabled": "Attivo",
+        "disabled": "Disattivato",
+        "unknown": "Sconosciuto",
+        "loading_title": "Lettura dell'eUICC",
+        "loading_description": "Il modem sta restituendo l'EID e i profili installati.",
+        "empty_title": "Nessun profilo",
+        "empty_description": "L'eUICC non ha segnalato profili installati."
+      },
+      "actions": {
+        "enable": "Attiva",
+        "delete": "Elimina",
+        "cancel": "Annulla",
+        "working": "In attesa del modem…",
+        "no_action": "Profilo attivo"
+      },
+      "confirm": {
+        "enable_title": "Attivare {{name}}?",
+        "enable_description": "Il modem passerà a questo profilo e si aggiornerà. I dati cellulari cadono per circa 30–60 secondi.",
+        "delete_title": "Eliminare {{name}}?",
+        "delete_description": "Il profilo verrà rimosso definitivamente dall'eUICC. L'operazione non può essere annullata.",
+        "confirm_enable": "Attiva profilo",
+        "confirm_delete": "Elimina profilo"
+      },
+      "toast": {
+        "enabled": "Profilo attivato",
+        "deleted": "Profilo eliminato",
+        "refreshing": "In attesa che il modem si riconnetta…"
+      },
+      "errors": {
+        "load_title": "Impossibile leggere l'eUICC",
+        "load_description": "Il modem non ha restituito un elenco di profili.",
+        "retry": "Riprova",
+        "action_failed": "Impossibile modificare il profilo",
+        "refresh_timeout": "Il modem non è tornato in tempo",
+        "state_not_changed": "Lo stato del profilo eUICC non è cambiato"
+      }
+    },
     "apn": {
       "page": {
         "title": "Impostazioni APN",

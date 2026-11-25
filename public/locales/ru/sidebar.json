@@ -14,6 +14,7 @@
     "sms_center": "Центр SMS",
     "sms_forwarding": "Пересылка SMS",
     "custom_profiles": "Свои профили",
+    "euicc_profiles": "Профили eSIM",
     "connection_scenarios": "Сценарии",
     "band_locking": "Диапазоны",
     "tower_locking": "Привязка к вышке",

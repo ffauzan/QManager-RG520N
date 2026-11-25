@@ -629,6 +629,57 @@
     }
   },
   "core_settings": {
+    "euicc": {
+      "page": {
+        "title": "eSIM 配置",
+        "description": "读取 eUICC、查看已安装的配置，并切换当前配置。",
+        "note": "切换配置会触发调制解调器刷新。蜂窝数据会中断约 30–60 秒后自行恢复；页面会持续检查，直到配置状态改变。"
+      },
+      "card": {
+        "title": "已安装配置",
+        "description": "通过 ES10c 从 eUICC 读取。EID 标识的是卡，不是配置。",
+        "refresh": "刷新",
+        "eid": "EID",
+        "profile_meta": "{{spn}} · ICCID {{iccid}}"
+      },
+      "states": {
+        "enabled": "已启用",
+        "disabled": "未启用",
+        "unknown": "未知",
+        "loading_title": "正在读取 eUICC",
+        "loading_description": "调制解调器正在返回 EID 和已安装配置。",
+        "empty_title": "没有配置",
+        "empty_description": "eUICC 未报告任何已安装配置。"
+      },
+      "actions": {
+        "enable": "启用",
+        "delete": "删除",
+        "cancel": "取消",
+        "working": "正在等待调制解调器…",
+        "no_action": "当前配置"
+      },
+      "confirm": {
+        "enable_title": "启用 {{name}}？",
+        "enable_description": "调制解调器将切换到此配置并刷新。蜂窝数据会中断约 30–60 秒。",
+        "delete_title": "删除 {{name}}？",
+        "delete_description": "此操作会从 eUICC 永久删除该配置，无法撤销。",
+        "confirm_enable": "启用配置",
+        "confirm_delete": "删除配置"
+      },
+      "toast": {
+        "enabled": "配置已启用",
+        "deleted": "配置已删除",
+        "refreshing": "正在等待调制解调器重新连接…"
+      },
+      "errors": {
+        "load_title": "无法读取 eUICC",
+        "load_description": "调制解调器未返回配置列表。",
+        "retry": "重试",
+        "action_failed": "无法更改配置",
+        "refresh_timeout": "调制解调器未及时恢复",
+        "state_not_changed": "eUICC 配置状态未改变"
+      }
+    },
     "apn": {
       "page": {
         "title": "APN 设置",

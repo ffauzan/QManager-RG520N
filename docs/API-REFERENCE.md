@@ -598,6 +598,49 @@ Activates (`true`) or deactivates (`false`) one PDP context via `AT+CGACT`.
 { "action": "clear" }
 ```
 
+### GET `/euicc/status.sh`
+
+Reads the eUICC over ES10c and returns the card identity plus the raw profile list.
+
+```json
+{
+  "success": true,
+  "eid": "89086035202200000026900000020422",
+  "profiles_raw": "BF2D...",
+  "info2_raw": "BF22..."
+}
+```
+
+`profiles_raw` is the `GetProfilesInfo` response TLV. The frontend decodes it; the CGI deliberately does not parse BER-TLV in shell.
+
+### POST `/euicc/profile.sh`
+
+Local profile enable, disable, or delete. There is no profile download endpoint; that requires a full LPA (ES9+ / SM-DP+ / BPP).
+
+**Request:**
+```json
+{
+  "action": "enable",
+  "iccid": "89620100002080120987",
+  "iccid_hex": "98261000000208219078"
+}
+```
+
+`iccid_hex` is the EF_ICCID value exactly as `status.sh` returns it, not the human ICCID.
+
+**Response:**
+```json
+{
+  "success": true,
+  "action": "enable",
+  "result": "00",
+  "result_hex": "BF31038001009000",
+  "refresh_expected": true
+}
+```
+
+Enable and disable trigger a UICC REFRESH; the modem can be unreachable for 30–60 seconds. The client must re-read `status.sh` and verify the profile state instead of relying on `result`. The endpoint refuses to delete the active profile.
+
 ### GET/POST `/cellular/sms.sh`
 
 SMS inbox and send functionality.

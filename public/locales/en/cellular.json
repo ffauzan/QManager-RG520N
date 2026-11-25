@@ -629,6 +629,57 @@
     }
   },
   "core_settings": {
+    "euicc": {
+      "page": {
+        "title": "eSIM Profiles",
+        "description": "Read the eUICC, inspect installed profiles, and switch the active profile.",
+        "note": "Switching profiles triggers a modem refresh. Cellular data drops for about 30–60 seconds and returns on its own; the page keeps checking until the profile state changes."
+      },
+      "card": {
+        "title": "Installed profiles",
+        "description": "Read from the eUICC over ES10c. The EID identifies the card, not the profile.",
+        "refresh": "Refresh",
+        "eid": "EID",
+        "profile_meta": "{{spn}} · ICCID {{iccid}}"
+      },
+      "states": {
+        "enabled": "Active",
+        "disabled": "Disabled",
+        "unknown": "Unknown",
+        "loading_title": "Reading the eUICC",
+        "loading_description": "The modem is returning the EID and installed profiles.",
+        "empty_title": "No profiles",
+        "empty_description": "The eUICC reported no installed profiles."
+      },
+      "actions": {
+        "enable": "Enable",
+        "delete": "Delete",
+        "cancel": "Cancel",
+        "working": "Waiting for the modem…",
+        "no_action": "Active profile"
+      },
+      "confirm": {
+        "enable_title": "Enable {{name}}?",
+        "enable_description": "The modem will switch to this profile and refresh. Cellular data drops for about 30–60 seconds.",
+        "delete_title": "Delete {{name}}?",
+        "delete_description": "This removes the profile from the eUICC permanently. It cannot be undone.",
+        "confirm_enable": "Enable profile",
+        "confirm_delete": "Delete profile"
+      },
+      "toast": {
+        "enabled": "Profile enabled",
+        "deleted": "Profile deleted",
+        "refreshing": "Waiting for the modem to reconnect…"
+      },
+      "errors": {
+        "load_title": "Could not read the eUICC",
+        "load_description": "The modem did not return a profile list.",
+        "retry": "Retry",
+        "action_failed": "Could not change the profile",
+        "refresh_timeout": "The modem did not come back in time",
+        "state_not_changed": "The eUICC did not change state"
+      }
+    },
     "apn": {
       "page": {
         "title": "APN Settings",

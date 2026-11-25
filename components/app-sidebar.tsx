@@ -56,6 +56,11 @@ const navCellular: NavItem[] = [
     icon: "account_circle",
   },
   {
+    t_key: "euicc_profiles",
+    url: "/cellular/euicc",
+    icon: "sim_card",
+  },
+  {
     t_key: "band_locking",
     url: "/cellular/cell-locking",
     icon: "signal_cellular_alt",

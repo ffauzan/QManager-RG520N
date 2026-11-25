@@ -629,6 +629,57 @@
     }
   },
   "core_settings": {
+    "euicc": {
+      "page": {
+        "title": "eSIM 設定檔",
+        "description": "讀取 eUICC、檢視已安裝的設定檔，並切換目前設定檔。",
+        "note": "切換設定檔會觸發數據機重新整理。行動數據會中斷約 30–60 秒後自行恢復；頁面會持續檢查，直到設定檔狀態改變。"
+      },
+      "card": {
+        "title": "已安裝設定檔",
+        "description": "透過 ES10c 從 eUICC 讀取。EID 標識的是卡片，不是設定檔。",
+        "refresh": "重新整理",
+        "eid": "EID",
+        "profile_meta": "{{spn}} · ICCID {{iccid}}"
+      },
+      "states": {
+        "enabled": "已啟用",
+        "disabled": "未啟用",
+        "unknown": "未知",
+        "loading_title": "正在讀取 eUICC",
+        "loading_description": "數據機正在傳回 EID 與已安裝設定檔。",
+        "empty_title": "沒有設定檔",
+        "empty_description": "eUICC 未回報任何已安裝設定檔。"
+      },
+      "actions": {
+        "enable": "啟用",
+        "delete": "刪除",
+        "cancel": "取消",
+        "working": "正在等待數據機…",
+        "no_action": "目前設定檔"
+      },
+      "confirm": {
+        "enable_title": "啟用 {{name}}？",
+        "enable_description": "數據機會切換到此設定檔並重新整理。行動數據會中斷約 30–60 秒。",
+        "delete_title": "刪除 {{name}}？",
+        "delete_description": "此操作會從 eUICC 永久刪除該設定檔，無法復原。",
+        "confirm_enable": "啟用設定檔",
+        "confirm_delete": "刪除設定檔"
+      },
+      "toast": {
+        "enabled": "設定檔已啟用",
+        "deleted": "設定檔已刪除",
+        "refreshing": "正在等待數據機重新連線…"
+      },
+      "errors": {
+        "load_title": "無法讀取 eUICC",
+        "load_description": "數據機未傳回設定檔清單。",
+        "retry": "重試",
+        "action_failed": "無法變更設定檔",
+        "refresh_timeout": "數據機未及時恢復",
+        "state_not_changed": "eUICC 設定檔狀態未改變"
+      }
+    },
     "apn": {
       "page": {
         "title": "APN 設定",

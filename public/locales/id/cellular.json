@@ -629,6 +629,57 @@
     }
   },
   "core_settings": {
+    "euicc": {
+      "page": {
+        "title": "Profil eSIM",
+        "description": "Baca eUICC, lihat profil yang terpasang, dan ganti profil aktif.",
+        "note": "Mengganti profil memicu refresh modem. Data seluler terputus sekitar 30–60 detik dan pulih sendiri; halaman terus memeriksa sampai status profil berubah."
+      },
+      "card": {
+        "title": "Profil terpasang",
+        "description": "Dibaca dari eUICC lewat ES10c. EID mengidentifikasi kartu, bukan profil.",
+        "refresh": "Muat ulang",
+        "eid": "EID",
+        "profile_meta": "{{spn}} · ICCID {{iccid}}"
+      },
+      "states": {
+        "enabled": "Aktif",
+        "disabled": "Nonaktif",
+        "unknown": "Tidak diketahui",
+        "loading_title": "Membaca eUICC",
+        "loading_description": "Modem sedang mengembalikan EID dan profil yang terpasang.",
+        "empty_title": "Tidak ada profil",
+        "empty_description": "eUICC tidak melaporkan profil yang terpasang."
+      },
+      "actions": {
+        "enable": "Aktifkan",
+        "delete": "Hapus",
+        "cancel": "Batal",
+        "working": "Menunggu modem…",
+        "no_action": "Profil aktif"
+      },
+      "confirm": {
+        "enable_title": "Aktifkan {{name}}?",
+        "enable_description": "Modem akan beralih ke profil ini dan melakukan refresh. Data seluler terputus sekitar 30–60 detik.",
+        "delete_title": "Hapus {{name}}?",
+        "delete_description": "Profil akan dihapus permanen dari eUICC. Tindakan ini tidak bisa dibatalkan.",
+        "confirm_enable": "Aktifkan profil",
+        "confirm_delete": "Hapus profil"
+      },
+      "toast": {
+        "enabled": "Profil diaktifkan",
+        "deleted": "Profil dihapus",
+        "refreshing": "Menunggu modem tersambung kembali…"
+      },
+      "errors": {
+        "load_title": "Gagal membaca eUICC",
+        "load_description": "Modem tidak mengembalikan daftar profil.",
+        "retry": "Coba lagi",
+        "action_failed": "Gagal mengubah profil",
+        "refresh_timeout": "Modem tidak kembali tepat waktu",
+        "state_not_changed": "Status profil di eUICC tidak berubah"
+      }
+    },
     "apn": {
       "page": {
         "title": "Pengaturan APN",
