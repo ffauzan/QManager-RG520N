@@ -443,10 +443,20 @@ t_perm_qmanager_dir() {
 }
 t_perm_rootfs_state() {
     local state; state=$(awk '$2=="/" {print $4}' /proc/mounts | head -1)
-    echo "rootfs state: $state" >> "$OUTPUT_FILE"
-    case "$state" in *ro*) echo "pass|read-only (expected)";;
-                     *rw*) echo "warn|read-write (atypical for RM520N-GL)";;
-                     *)    echo "fail|could not determine";; esac
+    local fstype; fstype=$(awk '$2=="/" {print $3}' /proc/mounts | head -1)
+    echo "rootfs state: $state fstype: $fstype" >> "$OUTPUT_FILE"
+    # Writable / is NORMAL when the rootfs is a flash filesystem. The old check
+    # treated every rw root as an anomaly and named RM520N-GL in the warning,
+    # so RG520N-EB (ubifs, rw) always showed a red herring.
+    case "$state" in
+        *ro*) echo "pass|read-only (expected)";;
+        *rw*) case "$fstype" in
+                  ubifs|ext4|f2fs|jffs2)
+                      echo "pass|read-write on $fstype (expected)";;
+                  *)  echo "warn|read-write on $fstype (atypical)";;
+              esac;;
+        *)    echo "fail|could not determine";;
+    esac
 }
 # Deliberately NOT `su`. su's PAM stack loads Quectel's proprietary
 # /lib/security/loginpw.so on the RM520N-GL (absent on the RG501Q-EU), which
@@ -677,7 +687,7 @@ _svc_check() {
     fi
     local enabled="no"
     [ -L "/lib/systemd/system/multi-user.target.wants/$unit" ] && enabled="yes"
-    local active; active=$(systemctl is-active "$unit" 2>/dev/null || echo unknown)
+    local active; active=$(systemctl is-active "$unit" 2>/dev/null); active=${active:-unknown}
     echo "unit=$unit enabled=$enabled active=$active" >> "$OUTPUT_FILE"
     case "$active" in
         active)   echo "pass|active, enabled=$enabled" ;;
@@ -687,7 +697,13 @@ _svc_check() {
     esac
 }
 t_svc_firewall()  { _svc_check qmanager-firewall.service 1; }
-t_svc_poller()    { _svc_check qmanager-poller.service 1; }
+t_svc_poller() {
+    # The run stops the poller to free the AT lock (see _pause_poller_if_running),
+    # so checking live state here always says "inactive". Report the state it had
+    # before the pause instead of inventing a fault.
+    if [ "${_POLLER_WAS_ACTIVE:-0}" = "1" ]; then echo "pass|active (paused for this run)"; return; fi
+    _svc_check qmanager-poller.service 1
+}
 t_svc_console()   { _svc_check qmanager-console.service 1; }
 t_svc_setup()     { _svc_check qmanager-setup.service 1; }
 t_svc_lighttpd()  { _svc_check lighttpd.service 1; }
@@ -767,7 +783,11 @@ t_net_lighttpd_listen() {
 t_net_firewall_rules() {
     local out; out=$(iptables -L INPUT -n 2>>"$OUTPUT_FILE")
     echo "$out" >> "$OUTPUT_FILE"
-    local rules; rules=$(echo "$out" | grep -cE '^(ACCEPT|DROP|REJECT)')
+    # Count RULE lines, not just ACCEPT/DROP/REJECT targets: QManager installs
+    # `-A INPUT -j QMANAGER_FW`, whose target column reads "QMANAGER_FW", so the
+    # old ACCEPT|DROP|REJECT grep reported "no INPUT rules detected" on a
+    # correctly firewalled device. `iptables -L` prints two header lines.
+    local rules; rules=$(printf '%s\n' "$out" | tail -n +3 | grep -c '^[A-Za-z]')
     if [ "$rules" -gt 0 ]; then echo "pass|$rules INPUT rules"
     else echo "warn|no INPUT rules detected"; fi
 }
@@ -1062,9 +1082,11 @@ _cleanup_stale() {
 # guarantees the poller restarts even if we crash, get killed, or hit Ctrl-C.
 
 _PAUSED_POLLER=0
+_POLLER_WAS_ACTIVE=0
 
 _pause_poller_if_running() {
     if systemctl is-active --quiet qmanager-poller 2>/dev/null; then
+        _POLLER_WAS_ACTIVE=1
         _PAUSED_POLLER=1
         systemctl stop qmanager-poller 2>/dev/null
         # Give in-flight qcmd/atcli a moment to release the AT lock.
