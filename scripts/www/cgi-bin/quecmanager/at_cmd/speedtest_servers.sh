@@ -41,9 +41,16 @@ OUTFILE="/tmp/qmanager_speedtest_servers.json"
 speedtest --servers --accept-license --accept-gdpr -f json > "$OUTFILE" 2>/dev/null
 
 if [ ! -s "$OUTFILE" ]; then
-    rm -f "$OUTFILE"
-    cgi_error "list_failed" "Failed to fetch server list"
-    exit 0
+ rm -f "$OUTFILE"
+ # Distinguish "no internet" from a genuine Ookla failure: with no default
+ # route the binary cannot reach the API, and reporting list_failed sends users
+ # hunting the wrong problem (docs/10 C9).
+ if ! ip route 2>/dev/null | grep -q '^default '; then
+ cgi_error "no_internet" "No internet connection — connect first, then refresh the server list"
+ exit 0
+ fi
+ cgi_error "list_failed" "Failed to fetch server list"
+ exit 0
 fi
 
 # Extract .servers array from {"type":"serverList","servers":[...]}

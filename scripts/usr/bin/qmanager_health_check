@@ -185,14 +185,15 @@ _emit_result_locked() {
             then . + {category:$category,label:$label,status:$status,duration_ms:$dur,detail:$detail}
             else . end))
         | .summary = (
-            (.tests // []) | reduce .[] as $t (
-                {pass:0,fail:0,warn:0,skip:0};
-                if   $t.status == "pass" then .pass += 1
-                elif $t.status == "fail" then .fail += 1
-                elif $t.status == "warn" then .warn += 1
-                elif $t.status == "skip" then .skip += 1
-                else . end
-            ) | .total = ((.tests // []) | length)
+        (.tests // []) as $all
+        | ($all | reduce .[] as $t (
+        {pass:0,fail:0,warn:0,skip:0};
+        if $t.status == "pass" then .pass += 1
+        elif $t.status == "fail" then .fail += 1
+        elif $t.status == "warn" then .warn += 1
+        elif $t.status == "skip" then .skip += 1
+        else . end
+        )) + {total: ($all | length)}
         )
     ' "$STATUS_FILE" | _atomic_write
 }
@@ -299,6 +300,7 @@ _test_catalog_pending() {
         {id:"net.rmnet",          category:"network", label:"rmnet+ has IP",                      status:"pending", duration_ms:0, detail:""},
         {id:"net.lighttpd_listen",category:"network", label:"lighttpd listening on web ports",   status:"pending", duration_ms:0, detail:""},
         {id:"net.firewall_rules", category:"network", label:"iptables INPUT rules loaded",        status:"pending", duration_ms:0, detail:""},
+ {id:"net.apn_configured", category:"network", label:"APN configured (cid 1 not empty)", status:"pending", duration_ms:0, detail:""},
 
         {id:"cfg.qmanager_dir",   category:"configuration", label:"/etc/qmanager exists",          status:"pending", duration_ms:0, detail:""},
         {id:"cfg.sms_alerts_json",category:"configuration", label:"sms_alerts.json valid",         status:"pending", duration_ms:0, detail:""},
@@ -762,9 +764,41 @@ t_net_rmnet() {
     if [ -n "$out" ]; then
         local ip; ip=$(echo "$out" | head -1 | awk '{print $4}')
         echo "pass|$ip"
-    else
+        else
         echo "fail|no rmnet interface with IPv4"
-    fi
+        fi
+}
+t_net_apn_configured() {
+ # APN kosong dengan PDP aktif = data path mati total, padahal semua indikator
+ # lain (registrasi, IP, sinyal) tetap terlihat normal. Kejadian nyata di unit
+ # ini tiap ganti kartu (docs/07): AT+CGDCONT cid 1 jadi "" dan UI tidak
+ # memberi tanda apa pun. Dites di sini supaya muncul di System Health Check.
+ local out cgd act cid1_active
+ out=$(qm_timeout 8 qcmd 'AT+CGDCONT?' 2>&1) || out=""
+ printf '%s\n' "$out" >> "$OUTPUT_FILE"
+ act=$(qm_timeout 8 qcmd 'AT+CGACT?' 2>&1) || act=""
+ printf '%s\n' "$act" >> "$OUTPUT_FILE"
+ if [ -z "$(printf '%s' "$out" | tr -d '\r')" ]; then
+ echo "warn|could not read AT+CGDCONT (modem busy?)"
+ return
+ fi
+ cgd=$(printf '%s\n' "$out" | tr -d '\r' | awk -F'"' '/^\+CGDCONT: 1,/ { print $4; exit }')
+ cid1_active=$(printf '%s\n' "$act" | tr -d '\r' | awk -F',' '/^\+CGACT: 1,/ { print $2; exit }')
+ if [ -z "$cgd" ]; then
+ # An empty APN is fatal at attach time but not always visible immediately: a
+ # bearer that came up while the APN was set keeps working until it is dropped,
+ # so the modem can look online with cid 1 already blanked. Grade by whether
+ # there is still a working default route.
+ if ip route 2>/dev/null | grep -q '^default '; then
+ echo "warn|APN cid 1 empty — current bearer still up, next attach will fail"
+ else
+ echo "fail|APN cid 1 empty — no data path"
+ fi
+ elif [ "$cid1_active" = "1" ]; then
+ echo "pass|APN $cgd (cid 1 active)"
+ else
+ echo "pass|APN $cgd (cid 1 inactive)"
+ fi
 }
 t_net_lighttpd_listen() {
     local out; out=$(ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null)
@@ -800,9 +834,12 @@ t_net_data_used_divergence() {
     fi
     local count; count=$(jq -r '.divergence_count // empty' "$f" 2>>"$OUTPUT_FILE")
     if [ -z "$count" ]; then
-        echo "jq read failed or key absent" >> "$OUTPUT_FILE"
-        echo "skip|data_used.json absent"
-        return
+    echo "jq read failed or key absent" >> "$OUTPUT_FILE"
+    # File exists but carries no counter (schema v6 dropped it). Reporting
+    # "data_used.json absent" here was wrong and made a healthy install look
+    # broken in the System Health page.
+    echo "pass|no divergence counter in schema $(jq -r '.schema // "?"' "$f" 2>/dev/null)"
+    return
     fi
     echo "divergence_count=$count" >> "$OUTPUT_FILE"
     if [ "$count" -lt 100 ]; then echo "pass|divergence_count $count"
@@ -1153,6 +1190,7 @@ _run_test net.ping            network      "IPv4 reachability (1.1.1.1)"        
 _run_test net.rmnet           network      "rmnet+ has IP"                         t_net_rmnet
 _run_test net.lighttpd_listen network      "lighttpd listening on $WEB_HTTP/$WEB_HTTPS" t_net_lighttpd_listen
 _run_test net.firewall_rules  network      "iptables INPUT rules loaded"           t_net_firewall_rules
+_run_test net.apn_configured network "APN configured (cid 1 not empty)" t_net_apn_configured
 _run_test data_used.divergence_low network "data_used divergence count low"        t_net_data_used_divergence
 
 _run_test cfg.qmanager_dir         configuration "/etc/qmanager exists"               t_cfg_qmanager_dir
