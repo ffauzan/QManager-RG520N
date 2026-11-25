@@ -198,25 +198,54 @@ parse_cgcontrdp() {
             # The gateway may be quoted or bare, which used to shift every
             # -F(") field after it by two and returned the GATEWAY as dns1.
             # Comma positions do not shift, so the fields are simply fixed.
-            gw = f[5]; d1 = f[6]; d2 = f[7]
-            gsub(/[^0-9.:]/, "", gw)
+            #
+            # RG520N-EB (SDX65, fw RG520NEBDGR03A03M4G) reports BOTH families in
+            # dotted-octet form AND glues the last DNS servers into ONE quoted,
+            # space-separated field:
+            #   1,5,"internet","10.100.56.126","36.0.152.0.9...29",
+            #   "254.128.0.0...0.1","112.215.198.248" "36.0.152...69",
+            # Reading f[6]/f[7] verbatim put a link-local IPv6 DNS (254.128... =
+            # fe80::1) into ipv4 dns1 and a two-address blob into dns2. So each
+            # field is tokenised and then filtered by OCTET COUNT, per family.
+            gwtok = ""
+            nt = split(f[5], _t5, /[ \t]+/)
+            for (i = 1; i <= nt; i++) {
+                t = _t5[i]; gsub(/"/, "", t)
+                if (t != "") { gwtok = t; break }
+            }
 
             n = split(addr, _oct, "[.]")
-            if ((addr ~ /:/) || n == 16) {
-                if (v6 == "") v6 = addr
-            } else if (n == 4) {
-                # Gateway is address-family-specific (the consumer emits it as
-                # ipv4_gateway), so it is only ever taken from an IPv4 record.
-                if (v4 == "") { v4 = addr; v4gw = gw }
+            fam4 = (addr !~ /:/ && n == 4)
+
+            if (fam4) {
+                # Gateway is address-family-specific (ipv4_gateway downstream),
+                # so it is only ever taken from an IPv4 record and only when the
+                # gateway itself is a 4-octet address.
+                if (v4 == "") {
+                    v4 = addr
+                    if (gwtok !~ /:/ && split(gwtok, _gx, "[.]") == 4) v4gw = gwtok
+                }
+            } else if (v6 == "") {
+                v6 = addr
             }
-            # DNS is NOT family-specific in the consumer contract — apn.sh
-            # emits plain dns1/dns2, not ipv4_dns1 — so take them from
-            # whichever record supplies them. Without this, an IPv6-only
-            # context (which this SIM does hand out) would report no DNS at
-            # all. First non-empty wins, so a dual-stack context still
-            # prefers the IPv4 record that arrives first.
-            if (d1 != "" && dns1 == "") dns1 = d1
-            if (d2 != "" && dns2 == "") dns2 = d2
+
+            # DNS is NOT family-specific in the consumer contract (apn.sh emits
+            # plain dns1/dns2), so take the first two addresses whose family
+            # matches the record being read: IPv4 for a v4 record, dotted-16
+            # for a v6 record. A dual-stack reply lists IPv4 first, so IPv4
+            # still wins — but an IPv6-only context no longer reports no DNS.
+            nd = split(f[6] " " f[7], _td, /[ \t]+/)
+            for (i = 1; i <= nd; i++) {
+                t = _td[i]; gsub(/"/, "", t)
+                if (t == "") continue
+                m = split(t, _o, "[.]")
+                is4 = (t !~ /:/ && m == 4)
+                is6 = ((t ~ /:/) || m == 16)
+                if (fam4 ? is4 : is6) {
+                    if (dns1 == "") dns1 = t
+                    else if (dns2 == "") dns2 = t
+                }
+            }
         }
         END { printf "%s\t%s\t%s\t%s\t%s\n", v4, v4gw, dns1, dns2, v6 }'
 }

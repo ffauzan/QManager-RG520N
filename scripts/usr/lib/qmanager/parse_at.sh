@@ -948,11 +948,20 @@ parse_cgcontrdp() {
     # Field 3: APN (quoted)
     t2_apn=$(printf '%s' "$csv" | cut -d',' -f3 | tr -d '"' | tr -d ' ')
 
-    # Field 6: Primary DNS (quoted)
-    t2_primary_dns=$(printf '%s' "$csv" | cut -d',' -f6 | tr -d '"' | tr -d ' ')
-
-    # Field 7: Secondary DNS (quoted)
-    t2_secondary_dns=$(printf '%s' "$csv" | cut -d',' -f7 | tr -d '"' | tr -d ' ')
+    # Fields 6/7: DNS. Read per OCTET COUNT, never verbatim: RG520N-EB
+    # (fw RG520NEBDGR03A03M4G) emits both families in dotted-octet form and
+    # glues two servers into ONE quoted field:
+    #   ...,"254.128.0.0...0.1","112.215.198.248" "36.0.152...69",
+    # A plain cut -f6/-f7 therefore published an IPv6 link-local (fe80::1) as
+    # primary DNS and a two-address blob as secondary. Keep 4-octet addresses
+    # first (dual-stack lists IPv4 first); fall back to dotted-16 for v6-only
+    # contexts so those still report DNS instead of nothing.
+    local _dns_tokens _dns_v4
+    _dns_tokens=$(printf '%s' "$csv" | cut -d',' -f6,7 | tr ',' ' ' | tr -s ' \t' '\n' | tr -d '"')
+    _dns_v4=$(printf '%s\n' "$_dns_tokens" | awk -F. '$0 !~ /:/ && NF == 4 && $1 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/' | head -2)
+    [ -z "$_dns_v4" ] && _dns_v4=$(printf '%s\n' "$_dns_tokens" | awk -F. 'NF == 16' | head -2)
+    t2_primary_dns=$(printf '%s\n' "$_dns_v4" | sed -n '1p')
+    t2_secondary_dns=$(printf '%s\n' "$_dns_v4" | sed -n '2p')
 }
 
 # -----------------------------------------------------------------------------
