@@ -1107,7 +1107,7 @@ collect_boot_data() {
     # CGMM: bare model name; CGSN/CIMI: bare 15-digit numbers.
     # Order is deterministic: first 15-digit line = IMEI, second = IMSI.
     # =========================================================================
-    result=$(qcmd 'AT+CVERSION;+CGMM;+CGSN;+CIMI;+QCCID;+CNUM;+QGETCAPABILITY' 2>/dev/null)
+    result=$(qcmd 'AT+CVERSION;+CGMM;+CGSN;+QCCID;+QGETCAPABILITY' 2>/dev/null)
 
     if [ -n "$result" ]; then
         # CVERSION: prefixed lines — parsers already grep by prefix
@@ -1389,6 +1389,44 @@ poll_serving_cell() {
         local prev_nr_state="$nr_state"
         parse_serving_cell "$result"
         case "$result" in *'+QENG:'*) _QENG_OK=1 ;; esac
+
+        # Carrier fallback: AT+COPS? answers with a bare "0" until the SIM is
+        # fully registered, so .network.carrier stayed "" even while camped on
+        # a cell. Derive the operator from the serving-cell PLMN instead and map
+        # it through the operator list the CGI already ships.
+        # One lookup per distinct PLMN (%s%s cache) — jq is not free on a
+        # single-core module, and this runs every Tier-1 cycle.
+        if [ -z "$t2_carrier" ]; then
+            _plmn=$(printf '%s\n' "$result" | awk -F',' '
+                /"servingcell"/ {
+                    for (i = 1; i <= NF; i++) {
+                        gsub(/"/, "", $i)
+                        if ($i ~ /^[0-9][0-9][0-9]$/ && $(i+1) ~ /^[0-9][0-9]?$/) {
+                            printf "%s %s", $i, $(i+1); exit
+                        }
+                    }
+                }')
+            if [ -n "$_plmn" ]; then
+                if [ "$_plmn" = "${_carrier_plmn_tried:-}" ]; then
+                    # Same PLMN as last lookup — reuse the cached brand. Needed
+                    # because Tier 2's parse_carrier() resets t2_carrier to ""
+                    # when AT+COPS? answers a bare "0", which would wipe this.
+                    [ -n "${_carrier_brand_cached:-}" ] && t2_carrier="$_carrier_brand_cached"
+                else
+                    _carrier_plmn_tried="$_plmn"
+                    _brand=$(jq -r --arg mcc "${_plmn%% *}" --arg mnc "${_plmn##* }" \
+                        '.[] | select(.mcc == $mcc)
+                             | select((.mnc | tostring) == $mnc
+                                      or (.mnc | tonumber) == ($mnc | tonumber))
+                             | .brand' \
+                        /usrdata/qmanager/www/cgi-bin/quecmanager/operator-list.json 2>/dev/null | head -1)
+                    if [ -n "$_brand" ] && [ "$_brand" != "null" ]; then
+                        t2_carrier="$_brand"
+                        _carrier_brand_cached="$_brand"
+                    fi
+                fi
+            fi
+        fi
         # Log state transitions
         qlog_state_change "network_type" "$prev_network_type" "$network_type"
         qlog_state_change "lte_state" "$prev_lte_state" "$lte_state"
@@ -1482,14 +1520,34 @@ poll_tier2() {
 
     # Compound AT: status queries in one call.
     # CPIN? is last — it can ERROR when SIM is absent; placing it last
-    # ensures earlier responses (QTEMP, COPS, QUIMSLOT, CNUM, QSIMSTAT) are
+    # ensures earlier responses (QTEMP, COPS, QUIMSLOT, QSIMSTAT) are
     # preserved even if the modem aborts on CPIN ERROR. QSIMSTAT? must sit
     # BEFORE CPIN? for the same reason it can't go last itself.
-    result=$(qcmd 'AT+QTEMP;+COPS?;+QUIMSLOT?;+CNUM;+QSIMSTAT?;+CPIN?' 2>/dev/null)
+    #
+    # CNUM is OUT of the chain on purpose: qcmd discards the WHOLE response when
+    # the word ERROR appears anywhere, and AT+CNUM answers ERROR on a SIM with no
+    # provisioned MSISDN (measured on RG520N-EB, same as the Group A chain at
+    # boot). Keeping it here blanked temperature, SIM status/inserted, slot and
+    # QSIMSTAT on every Tier-2 cycle — .sim.status stuck at "unknown" while
+    # AT+CPIN? was READY. Same split, same reason as Group A.
+    # CPIN is OUT of the chain as well: "place it last so the earlier replies
+    # survive" does not hold for qcmd — it discards the WHOLE response when the
+    # word ERROR appears anywhere. With no SIM, AT+CPIN? answers +CME ERROR: 10
+    # and temperature/slot/QSIMSTAT were thrown away with it, leaving the UI
+    # showing the OLD slot and "ready" after a slot switch (measured: modem on
+    # slot 2 with QSIMSTAT 0,0 while status.json still said slot 1 / ready).
+    result=$(qcmd 'AT+QTEMP;+COPS?;+QUIMSLOT?;+QSIMSTAT?' 2>/dev/null)
+    local num_result cpin_result
+    num_result=$(qcmd 'AT+CNUM' 2>/dev/null)
+    cpin_result=$(qcmd 'AT+CPIN?' 2>/dev/null)
 
     if [ -n "$result" ]; then
         parse_temperature "$result"
         parse_carrier "$result"
+        # parse_carrier blanks t2_carrier when AT+COPS? answers a bare "0" (SIM
+        # not fully registered). Restore the PLMN-derived brand Tier 1 cached so
+        # the field does not flicker between "XL" and "" every Tier-2 cycle.
+        [ -z "$t2_carrier" ] && [ -n "${_carrier_brand_cached:-}" ] && t2_carrier="$_carrier_brand_cached"
         parse_sim_slot "$result"
         parse_sim_inserted "$result"
 
@@ -1500,18 +1558,21 @@ poll_tier2() {
         # quoted-number,type anchor as collect_boot_data's CNUM parse (see
         # there for why `cut -d',' -f2` is unsafe).
         local num
-        num=$(printf '%s\n' "$result" | grep '+CNUM:' | head -1 | tr -d '\r')
+        num=$(printf '%s\n' "$num_result" | grep '+CNUM:' | head -1 | tr -d '\r')
         num=$(printf '%s\n' "$num" | sed -n 's/.*,"\([+0-9]*\)",[0-9]*[[:space:]]*$/\1/p')
         boot_phone_number="$num"
 
         # SIM status — extract CPIN line specifically (parse_sim_status uses
         # case matching, not grep, so pass only the relevant line)
         local cpin_line
-        cpin_line=$(printf '%s\n' "$result" | grep '+CPIN:' | head -1)
+        cpin_line=$(printf '%s\n' "$cpin_result" | grep '+CPIN:' | head -1)
         if [ -n "$cpin_line" ]; then
             parse_sim_status "$cpin_line"
-        elif printf '%s\n' "$result" | grep -q 'CME ERROR'; then
-            t2_sim_status="error"
+        elif [ "$t2_sim_inserted" = "0" ]; then
+            # No SIM in the active slot: AT+CPIN? returns +CME ERROR: 10, and
+            # qcmd hands back nothing at all. QSIMSTAT (its own call now) is the
+            # witness that the tray is empty rather than the read having failed.
+            t2_sim_status="not_inserted"
             errors="sim_not_inserted"
         fi
 
@@ -1587,6 +1648,10 @@ poll_tier2() {
 # =============================================================================
 
 determine_service_status() {
+    # parse_serving_cell already mapped AT+QENG's state (NOCONN/LIMSRV/CONNECT/
+    # SEARCH) into service_status. Keep it: the checks below are refinements on
+    # top of it, and dropping it made LIMSRV indistinguishable from "connected".
+    local _parsed_status="$service_status"
     # Reset every cycle so a stale value cannot survive ambiguous inputs.
     service_status="unknown"
 
@@ -1606,6 +1671,16 @@ determine_service_status() {
 
     if [ "$lte_state" = "searching" ]; then
         service_status="searching"
+        return
+    fi
+
+    # LIMSRV: camped but LIMITED SERVICE (emergency calls only) — the SIM is
+    # attached, no bearer is possible. parse_serving_cell already maps the QENG
+    # state to "limited", but nothing consumed it, so the RSRP branch below
+    # reported "optimal" on a link that carries no data (measured on RG520N-EB,
+    # AT+QENG="servingcell" -> "LIMSRV", RSRP -84 -> dashboard green, no PDP).
+    if [ "$_parsed_status" = "limited" ] || [ "$service_status" = "limited" ] || [ "$lte_state" = "limited" ] || [ "$nr_state" = "limited" ]; then
+        service_status="limited"
         return
     fi
 
