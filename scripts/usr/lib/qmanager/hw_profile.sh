@@ -146,9 +146,15 @@ qm_hw_atd_enabled() {
 # | Match on Project Name     | Tier         | Installer behavior              |
 # | RM551E*                   | incompatible | hard die — wrong arch (OpenWRT) |
 # | RM520N*                   | official     | proceed, full profile           |
+# | RG520N*                   | community    | proceed, full profile           |
 # | RG501Q*                   | community    | proceed, full profile           |
 # | known SoC, unknown model  | community    | proceed, inferred from SoC      |
 # | unknown SoC / unparseable | fallback     | proceed, conservative defaults  |
+#
+# RG520N (RG520N-EB here, fw RG520NEBDGR03A03M4G) is SDX6X like the RM520N and
+# answers the same AT surface; it only fell through to the "known SoC" arm, which
+# left form_factor "unknown" and variant "default" in platform.json. Listed
+# explicitly so the profile says what the hardware is instead of inferring it.
 #
 # RG501Q is `community` in Phase A and NOT `official`. Section 4.4 of the spec
 # lists it as official "after Phase C"; that promotion is Phase C's deliverable.
@@ -160,6 +166,7 @@ qm_hw_tier() {
     case "$model" in
         RM551E*) printf '%s\n' "incompatible" ; return 0 ;;
         RM520N*) printf '%s\n' "official"     ; return 0 ;;
+        RG520N*) printf '%s\n' "community"    ; return 0 ;;
         RG501Q*) printf '%s\n' "community"    ; return 0 ;;
     esac
     # Unrecognized model — fall back to the SoC axis. SDX6X and SDX55 are the two
@@ -179,6 +186,7 @@ qm_hw_tier() {
 qm_hw_form_factor() {
     case "$(qm_hw_model)" in
         RM520N*) printf '%s\n' "m2"  ;;
+        RG520N*) printf '%s\n' "lga" ;;   # RG520N series is LGA (41x44x2.75 mm)
         RG501Q*) printf '%s\n' "lga" ;;
         *)       printf '%s\n' "$QM_HW_UNKNOWN" ;;
     esac
@@ -191,6 +199,7 @@ qm_hw_form_factor() {
 qm_hw_variant() {
     case "$(qm_hw_model)" in
         RM520N*) printf '%s\n' "rm520n" ;;
+        RG520N*) printf '%s\n' "default" ;;  # no variants/rg520n overlay yet
         RG501Q*) printf '%s\n' "rg501q" ;;
         *)       printf '%s\n' "default" ;;
     esac
