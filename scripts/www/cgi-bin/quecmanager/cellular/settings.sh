@@ -360,13 +360,28 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
     fi
 
     if [ "$SIM_DETECT" != "unset" ]; then
-        case "$SIM_DETECT" in
-            0|1) ;;
-            *)
-                cgi_error "invalid_sim_detect" "SIM detect must be 0 or 1"
-                exit 0
-                ;;
-        esac
+    case "$SIM_DETECT" in
+    0|1) ;;
+    *)
+    cgi_error "invalid_sim_detect" "SIM detect must be 0 or 1"
+    exit 0
+    ;;
+    esac
+    # Platform guard (RG520N-EB): the card-detect pin on this board does not match
+    # the firmware's configured insert level, so enabling detection makes slot 1
+    # permanently unreadable (QSIMSTAT "0,0", QINISTAT 0, CPIN ERROR) until it is
+    # turned off again plus a radio cycle. Measured on this unit; see
+    # docs/08-sim-slot1-dead.md. Refuse the write instead of letting the UI break
+    # the modem silently.
+    if [ "$SIM_DETECT" = "1" ]; then
+    _pform=$(jq -r '.model // ""' /etc/qmanager/platform.json 2>/dev/null)
+    case "$_pform" in
+    RG520N*)
+    cgi_error "sim_detect_unsupported" "SIM detection must stay OFF on this device (RG520N): enabling it stops slot 1 from reading any card."
+    exit 0
+    ;;
+    esac
+    fi
     fi
 
     # --- Apply in safe order: nr5g_mode, roam_pref, sim_detect, mode_pref, sim_slot (w/ CFUN procedure), cfun ---
@@ -594,18 +609,30 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
 
     # --- Response ---
     if [ -z "$errors" ]; then
-        cgi_success
+    cgi_success
     else
-        jq -n --arg errors "$errors" --arg applied "$applied" \
-        --arg slot_state "${sim_slot_state:-}" --arg slot_rev "${sim_slot_reverted_to:-}" \
-        '{
-        success: false,
-        error: "partial_failure",
-        failed_fields: ($errors | split(",") | map(select(length > 0))),
-        applied_fields: ($applied | split(",") | map(select(length > 0)))
-        }
-        + (if $slot_state == "" then {} else {sim_slot_state: $slot_state} end)
-        + (if $slot_rev == "" then {} else {sim_slot_reverted_to: ($slot_rev | tonumber)} end)'
+    # detail: the settings page only renders `error` (mapped to a generic
+    # "Some items succeeded but others failed"), so the reason is also shipped as
+    # `detail` — other pages in the UI display detail via resolveErrorMessage, and
+    # any script/agent hitting this endpoint gets a human sentence without having
+    # to know sim_slot_state semantics.
+    _detail_msg=""
+    case "${sim_slot_state:-}" in
+    reverted) _detail_msg="Slot $SIM_SLOT has no usable SIM — modem returned to slot ${sim_slot_reverted_to:-previous}." ;;
+    not_ready) _detail_msg="Slot $SIM_SLOT has no usable SIM — CPIN never reached READY." ;;
+    esac
+    jq -n --arg errors "$errors" --arg applied "$applied" \
+    --arg slot_state "${sim_slot_state:-}" --arg slot_rev "${sim_slot_reverted_to:-}" \
+    --arg detail "$_detail_msg" \
+    '{
+    success: false,
+    error: "partial_failure",
+    failed_fields: ($errors | split(",") | map(select(length > 0))),
+    applied_fields: ($applied | split(",") | map(select(length > 0)))
+    }
+    + (if $detail == "" then {} else {detail: $detail} end)
+    + (if $slot_state == "" then {} else {sim_slot_state: $slot_state} end)
+    + (if $slot_rev == "" then {} else {sim_slot_reverted_to: ($slot_rev | tonumber)} end)'
     fi
     exit 0
 fi

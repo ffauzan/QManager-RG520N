@@ -194,6 +194,8 @@ export interface CellularSettingsResponse {
 export interface CellularSettingsApplyResponse {
   success: boolean;
   error?: string;
+  /** Human-readable reason from the backend, shown instead of field labels. */
+  detail?: string;
   /** Fields that failed to apply (only on partial failure) */
   failed_fields?: string[];
   /** Fields that were successfully applied */
@@ -215,6 +217,8 @@ export interface CellularSettingsApplyResult {
   failedFields: WritableSettingKey[];
   /** Error text from the backend or transport, null on full success. */
   error: string | null;
+  /** Backend's human-readable reason, when it supplied one. */
+  detail: string | null;
 }
 
 // --- Display Helpers ---------------------------------------------------------

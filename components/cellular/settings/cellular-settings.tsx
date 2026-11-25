@@ -106,13 +106,15 @@ const CellularSettingsComponent = () => {
       }
       return;
     }
-    // One error toast, never a success then an error. `result.error` is a raw
-    // backend code, so the description names the fields that failed instead.
+    // One error toast, never a success then an error. Prefer the backend's
+    // human-readable detail (for example a reverted slot switch); fall back to
+    // naming the fields that failed when the backend sent no detail.
     toast.error(t(`${K}.toast.save_failed`), {
       description:
-        result.failedFields.length > 0
+        result.detail ||
+        (result.failedFields.length > 0
           ? result.failedFields.map((key) => t(`${K}.rows.${key}.label`)).join(", ")
-          : undefined,
+          : undefined),
     });
   };
 

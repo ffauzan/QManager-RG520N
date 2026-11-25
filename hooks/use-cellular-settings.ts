@@ -341,6 +341,7 @@ export function useCellularSettings(): UseCellularSettingsReturn {
         appliedFields: [],
         failedFields: [],
         error: null,
+        detail: null,
       };
       setLastApply(noop);
       return noop;
@@ -378,6 +379,7 @@ export function useCellularSettings(): UseCellularSettingsReturn {
       appliedFields: [],
       failedFields: attempted,
       error: message,
+      detail: message,
     });
 
     try {
@@ -410,6 +412,7 @@ export function useCellularSettings(): UseCellularSettingsReturn {
         appliedFields: applied,
         failedFields: failed,
         error: applyErrorText(data, failed),
+        detail: data.detail ?? null,
       };
 
       // Clear only what actually landed — anything the modem rejected stays
