@@ -209,10 +209,27 @@ if [ "$REQUEST_METHOD" = "GET" ]; then
         ds_line=$(printf '%s\n' "$ds_raw" | grep '+QSIMCFG:.*"dual_slot_status"' | head -1 | sed 's/.*"dual_slot_status",//' | tr -d ' \r')
         ds_count=$(printf '%s' "$ds_line" | awk -F',' '{print NF}')
         if [ -n "$ds_line" ] && [ "$ds_count" = "12" ]; then
-            s1_active=$(printf '%s' "$ds_line" | cut -d',' -f2)
-            s1_iccid=$(printf '%s' "$ds_line" | cut -d',' -f6)
-            s2_active=$(printf '%s' "$ds_line" | cut -d',' -f8)
-            s2_iccid=$(printf '%s' "$ds_line" | cut -d',' -f12)
+            # Group order is NOT stable: the group holding a readable card can
+            # come first or second, and the leading index does not agree with
+            # AT+QUIMSLOT (seen live: QUIMSLOT=1 while the card-bearing group
+            # was labelled 2). So do not trust position OR the group index —
+            # identify the group by its active flag, then map it onto the slot
+            # AT+QUIMSLOT reports.
+            g1_active=$(printf '%s' "$ds_line" | cut -d',' -f2)
+            g1_iccid=$(printf '%s' "$ds_line" | cut -d',' -f6)
+            g2_active=$(printf '%s' "$ds_line" | cut -d',' -f8)
+            g2_iccid=$(printf '%s' "$ds_line" | cut -d',' -f12)
+            if [ "$g1_active" = "1" ]; then
+                act_iccid="$g1_iccid"; stby_iccid="$g2_iccid"
+            elif [ "$g2_active" = "1" ]; then
+                act_iccid="$g2_iccid"; stby_iccid="$g1_iccid"
+            else
+                act_iccid="$g1_iccid"; stby_iccid="$g2_iccid"
+            fi
+            case "$sim_slot" in
+                2) s2_iccid="$act_iccid"; s2_active="1"; s1_iccid="$stby_iccid"; s1_active="0" ;;
+                *) s1_iccid="$act_iccid"; s1_active="1"; s2_iccid="$stby_iccid"; s2_active="0" ;;
+            esac
             if [ -n "$s1_active" ] && [ -n "$s1_iccid" ] && [ -n "$s2_active" ] && [ -n "$s2_iccid" ]; then
                 dual_slot_json=$(jq -n \
                     --arg s1a "$s1_active" --arg s1i "$s1_iccid" \
@@ -439,8 +456,11 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
     #    This is a radio cycle (CFUN=0/1), not a full modem reboot — the
     #    LAN/HTTP path survives, so it's safe to run inline in this CGI.
     if [ "$SIM_SLOT" != "unset" ]; then
-        qlog_info "SIM slot change: starting CFUN=0 -> QUIMSLOT=$SIM_SLOT -> CFUN=1 procedure"
-        sim_proceed="1"
+    qlog_info "SIM slot change: starting CFUN=0 -> QUIMSLOT=$SIM_SLOT -> CFUN=1 procedure"
+    sim_proceed="1"
+    # Remember the slot we came from: AT+QUIMSLOT? verifies fine on a slot with
+    # no usable SIM, and stranding the modem there costs the user their link.
+    _prev_slot=$(qcmd 'AT+QUIMSLOT?' 2>/dev/null | grep '+QUIMSLOT:' | head -1 | sed 's/+QUIMSLOT: //' | tr -d ' \r')
 
         # Step 1: Switch to minimum functionality
         # (at_write, not the dead `*ERROR*` stdout match — see the at_write
@@ -495,8 +515,40 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
             fi
 
             if [ -n "$sim_switch_verified" ]; then
-                qlog_info "SIM procedure: QUIMSLOT=$SIM_SLOT verified active"
-                applied="${applied}sim_slot,"
+            # QUIMSLOT read-back only proves the slot pointer moved — not that the SIM
+            # in that slot is readable. A dead USIM path (or empty slot) verifies fine
+            # and leaves the modem on a slot that never reaches CPIN READY, so poll
+            # CPIN before declaring success and revert if it never comes up.
+            sim_ready=""
+            _cpin_i=1
+            while [ "$_cpin_i" -le 8 ]; do
+                _cpin_val=$(qcmd 'AT+CPIN?' 2>/dev/null | grep '+CPIN:' | head -1 | sed 's/+CPIN: //' | tr -d ' \r')
+                if [ "$_cpin_val" = "READY" ]; then
+                    sim_ready="1"
+                    break
+                fi
+                sleep 1
+                _cpin_i=$((_cpin_i + 1))
+            done
+
+            if [ -z "$sim_ready" ]; then
+                qlog_warn "SIM procedure: QUIMSLOT=$SIM_SLOT verified but CPIN not READY after 8s (no usable SIM in that slot)"
+                sim_slot_state="not_ready"
+                if [ -n "$_prev_slot" ] && [ "$_prev_slot" != "$SIM_SLOT" ]; then
+                    qlog_info "SIM procedure: reverting to previously active slot $_prev_slot"
+                    qcmd 'AT+CFUN=0' >/dev/null 2>&1
+                    sleep 2
+                    qcmd "AT+QUIMSLOT=$_prev_slot" >/dev/null 2>&1
+                    sleep 2
+                    qcmd 'AT+CFUN=1' >/dev/null 2>&1
+                    sleep 20
+                    sim_slot_state="reverted"
+                    sim_slot_reverted_to="$_prev_slot"
+                fi
+                errors="${errors}sim_slot,"
+            else
+            qlog_info "SIM procedure: QUIMSLOT=$SIM_SLOT verified active (CPIN READY)"
+            applied="${applied}sim_slot,"
 
                 # Auto-apply matching profile for the new SIM (verified switch only)
                 sleep 1  # let SIM initialize after CFUN=1
@@ -514,12 +566,13 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
                 # Nudge the poller to refresh warm fields (carrier name,
                 # SIM slot, APN, phone number) on its next ~2s tick.
                 touch /tmp/qmanager_tier2_refresh 2>/dev/null || true
-            else
+                fi
+                else
                 qlog_error "SIM procedure: QUIMSLOT=$SIM_SLOT NOT verified after retry — modem stayed on old slot"
                 errors="${errors}sim_slot,"
-            fi
-        fi
-    fi
+                fi
+                fi
+                fi
 
     # 6. CFUN change (skip if SIM procedure already restored to user's desired value)
     if [ "$CFUN" != "unset" ]; then
@@ -544,12 +597,15 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
         cgi_success
     else
         jq -n --arg errors "$errors" --arg applied "$applied" \
-            '{
-                success: false,
-                error: "partial_failure",
-                failed_fields: ($errors | split(",") | map(select(length > 0))),
-                applied_fields: ($applied | split(",") | map(select(length > 0)))
-            }'
+        --arg slot_state "${sim_slot_state:-}" --arg slot_rev "${sim_slot_reverted_to:-}" \
+        '{
+        success: false,
+        error: "partial_failure",
+        failed_fields: ($errors | split(",") | map(select(length > 0))),
+        applied_fields: ($applied | split(",") | map(select(length > 0)))
+        }
+        + (if $slot_state == "" then {} else {sim_slot_state: $slot_state} end)
+        + (if $slot_rev == "" then {} else {sim_slot_reverted_to: ($slot_rev | tonumber)} end)'
     fi
     exit 0
 fi
