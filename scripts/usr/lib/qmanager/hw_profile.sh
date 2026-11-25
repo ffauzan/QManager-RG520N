@@ -205,6 +205,24 @@ qm_hw_variant() {
     esac
 }
 
+# qm_hw_caps — per-model capability hints, emitted into platform.json as `caps`.
+#
+# Upstream writes `{}` ("Phase C not done"), so every consumer hardcodes its own
+# answer (netdev, slot count, ...) and drifts. Only values measured on a unit
+# belong here; anything unverified stays out rather than becoming a
+# plausible-looking lie.
+#   netdev    — aggregate WAN netdev whose byte counters feed Data Used
+#   dual_slot — both USIM slots usable (RG520N-EB: yes, but ONLY while
+#               AT+QSIMDET=0,0 — see docs/08-sim-slot1-dead.md)
+#   usbnet    — USB composition the board exposes
+#   mimo      — max layers the module can report (4x4 NR; LTE reports 2 ports)
+qm_hw_caps() {
+ case "$(qm_hw_model)" in
+ RG520N*|RM520N*) printf '%s' '{"netdev":"rmnet_ipa0","dual_slot":true,"usbnet":"rndis","mimo":"4x4"}' ;;
+ *) printf '%s' '{}' ;;
+ esac
+}
+
 # --- Generator ---------------------------------------------------------------
 #
 # THE SINGLE WRITER OF platform.json. Two code paths write the profile — the
@@ -294,7 +312,7 @@ qm_hw_write_profile() {
         printf '  "form_factor": "%s",\n'     "$(_qm_hw_json_escape "$(qm_hw_form_factor)")"
         printf '  "tier": "%s",\n'            "$(_qm_hw_json_escape "$(qm_hw_tier)")"
         printf '  "fw_fingerprint": "%s",\n'  "$(_qm_hw_json_escape "$(qm_hw_fw_fingerprint)")"
-        printf '  "caps": {}\n'
+        printf ' "caps": %s\n' "$(qm_hw_caps)"
         printf '}\n'
     } > "$tmp" ) 2>/dev/null; then
         # If $tmp turned into a symlink mid-race, preserve it as evidence

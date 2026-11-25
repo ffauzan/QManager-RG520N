@@ -104,7 +104,19 @@ AP_LOCAL_INTERVAL=10   # ping history + watchcat state every N s, every tier
 # Phase C, not in a model glob here. It is a function rather than a bare
 # assignment so the choice can be driven from scripts/test/poller-data-used.sh.
 resolve_network_iface() {
-    printf '%s\n' "rmnet_ipa0"
+ # Prefer the hardware profile's caps.netdev (hw_profile.sh writes it). Falls
+ # back to rmnet_ipa0 when the profile is missing, carries `{}` (unrecognised
+ # model) or names a netdev this kernel does not have — the returned name must
+ # always exist in /proc/net/dev, or Data Used freezes silently (see above).
+ local cap=""
+ if [ -r /etc/qmanager/platform.json ]; then
+ cap=$(jq -r '.caps.netdev // empty' /etc/qmanager/platform.json 2>/dev/null)
+ fi
+ if [ -n "$cap" ] && grep -q "^${cap}:" /proc/net/dev 2>/dev/null; then
+ printf '%s\n' "$cap"
+ return
+ fi
+ printf '%s\n' "rmnet_ipa0"
 }
 NETWORK_IFACE=$(resolve_network_iface)
 # Path to the Quectel firmware version file. Overridable for the test harness.
@@ -263,6 +275,10 @@ t2_secondary_dns=""
 t2_wan_ipv4=""
 t2_wan_ipv6=""
 t2_mimo=""
+# Per-leg MIMO cache — see parse_mimo's accumulate note. Reset only on a
+# network-type transition or at startup.
+t2_mimo_lte=""
+t2_mimo_nr=""
 t1_cfun=1
 
 # Tier 1 data (updated every cycle)
@@ -1096,6 +1112,34 @@ update_data_used() {
 # BOOT DATA COLLECTION (runs once at startup)
 # =============================================================================
 
+# apn_remember_good — persist the last APN the network actually negotiated.
+#
+# Why: the modem blanks AT+CGDCONT cid 1 by itself on a SIM change (4x on this
+# unit, docs/07), and nothing in the stack puts it back —
+# /etc/qmanager/apn_setting.json does not exist and apn_names.json holds
+# {"1":""}. The literal APN string therefore lives in RAM only, so after a blank
+# the operator has to remember it. This sidecar keeps it on disk. It is written
+# from data the modem just reported, never invented, and only when it changes.
+#
+# Deliberately NOT an auto-restore: re-attaching a dropped bearer unattended
+# from the poller would trade a visible outage for a silent one. Recovery is one
+# command away via scripts/apn-restore.sh, which pauses the poller first.
+APN_LAST_GOOD_FILE="/etc/qmanager/apn_last_good"
+apn_remember_good() {
+ [ -n "$t2_apn" ] || return 0
+ local prev=""
+ [ -f "$APN_LAST_GOOD_FILE" ] && prev=$(cat "$APN_LAST_GOOD_FILE" 2>/dev/null)
+ [ "$prev" = "$t2_apn" ] && return 0
+ # noclobber write then mv: /etc/qmanager is www-data-writable, so a plantable
+ # symlink must not be followed (same reasoning as hw_profile.sh's writer).
+ local tmp="${APN_LAST_GOOD_FILE}.tmp"
+ rm -f "$tmp" 2>/dev/null
+ ( set -C; printf '%s\n' "$t2_apn" > "$tmp" ) 2>/dev/null || return 0
+ chmod 644 "$tmp" 2>/dev/null
+ mv "$tmp" "$APN_LAST_GOOD_FILE" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+ qlog_info "APN: last-good recorded as '$t2_apn'"
+}
+
 collect_boot_data() {
     log_info "Collecting boot-only data..."
 
@@ -1429,6 +1473,12 @@ poll_serving_cell() {
         fi
         # Log state transitions
         qlog_state_change "network_type" "$prev_network_type" "$network_type"
+ # MIMO legs are cached across Tier-2 calls (parse_mimo accumulates them), so a
+ # stale leg would survive a mode change — e.g. the NR leg lingering after
+ # dropping from NSA to LTE-only. Clear on transition.
+ if [ "$network_type" != "$prev_network_type" ]; then
+ t2_mimo_lte="" ; t2_mimo_nr="" ; t2_mimo=""
+ fi
         qlog_state_change "lte_state" "$prev_lte_state" "$lte_state"
         qlog_state_change "nr_state" "$prev_nr_state" "$nr_state"
     else
@@ -1594,7 +1644,8 @@ poll_tier2() {
     fi
     if [ -n "$result" ]; then
         if printf '%s\n' "$result" | grep -q '+CGCONTRDP:'; then
-            parse_cgcontrdp "$result"
+        parse_cgcontrdp "$result"
+        apn_remember_good
         else
             t2_apn="" ; t2_primary_dns="" ; t2_secondary_dns=""
         fi
@@ -1611,10 +1662,13 @@ poll_tier2() {
     sleep "$SIP_DELAY"
 
     # --- Group 2: NR timing + MIMO ---
-    # nr5g_mimo_layers is only valid in SA mode (crashes/errors in LTE & NSA)
+    # nr5g_mimo_layers used to be gated to SA only, on the assumption it errors in
+    # LTE/NSA. Measured on RG520N-EB (RG520NEBDGR03A03M4G): it answers fine in NSA
+    # (returns 1,2 — the NR leg of the NSA pair), so the UI gets both legs instead
+    # of silently dropping the NR side. LTE-only stays gated: no NR leg to report.
     local nr_cmd='AT+QNWCFG="nr5g_time_advance"'
-    if [ "$network_type" = "5G-SA" ]; then
-        nr_cmd="${nr_cmd}"';+QNWCFG="nr5g_mimo_layers"'
+    if [ "$network_type" = "5G-SA" ] || [ "$network_type" = "5G-NSA" ]; then
+     nr_cmd="${nr_cmd}"';+QNWCFG="nr5g_mimo_layers"'
     fi
     # Groups 2 and 3 are skipped while no radio is attached (network_type is stale then).
     result=""

@@ -623,15 +623,21 @@ parse_mimo() {
         fi
     fi
 
-    # Combine: "LTE 1x4 | NR 2x4" or just "LTE 1x4"
-    if [ -n "$lte_part" ] && [ -n "$nr_part" ]; then
-        t2_mimo="${lte_part} | ${nr_part}"
-    elif [ -n "$lte_part" ]; then
-        t2_mimo="$lte_part"
-    elif [ -n "$nr_part" ]; then
-        t2_mimo="$nr_part"
+    # Combine into "LTE 1x4 | NR 2x4". The two legs arrive in SEPARATE calls
+    # (NR timing group, then LTE timing group) and each call passes only its own
+    # response, so the legs must be remembered across calls — otherwise the second
+    # call silently drops the first. Observed on RG520N-EB: NR read (1,2) then the
+    # LTE read overwrote it and the UI showed "LTE 1x1" forever.
+    [ -n "$lte_part" ] && t2_mimo_lte="$lte_part"
+    [ -n "$nr_part" ] && t2_mimo_nr="$nr_part"
+    if [ -n "${t2_mimo_lte:-}" ] && [ -n "${t2_mimo_nr:-}" ]; then
+    t2_mimo="${t2_mimo_lte} | ${t2_mimo_nr}"
+    elif [ -n "${t2_mimo_lte:-}" ]; then
+    t2_mimo="${t2_mimo_lte}"
+    elif [ -n "${t2_mimo_nr:-}" ]; then
+    t2_mimo="${t2_mimo_nr}"
     fi
-}
+    }
 
 # --- LTE Resource Blocks → MHz Mapping ----------------------------------------
 # QCAINFO uses resource block counts for LTE bandwidth, not the enum used by
